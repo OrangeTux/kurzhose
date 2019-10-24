@@ -3,27 +3,35 @@ mod ocpp;
 
 extern crate nix;
 
+use std::env;
+use std::fs::File;
+
 pub use crate::app::App;
 use crossbeam::channel;
 use serde_json::Value;
 use std::io;
+use std::io::{BufRead, BufReader, Error, ErrorKind};
 use std::thread;
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
 use termion::{get_tty, is_tty};
 
-fn main() -> () {
-    let stdin = io::stdin();
-    if is_tty(&stdin) {
-        panic!("Missing input")
-    }
+fn main() -> Result<(), io::Error> {
+    let args: Vec<String> = env::args().collect();
+    let input = match args.get(1) {
+        Some(file) => {
+            let f = File::open(file).unwrap();
+            BufReader::new(f)
+        }
+        None => return Err(Error::new(ErrorKind::NotFound, "file not found")),
+    };
 
     let (s1, r1) = channel::unbounded();
 
     let stdout = io::stdout().into_raw_mode().unwrap();
     let tty = get_tty().unwrap();
 
-    let mut app = App::new(stdin.lock(), stdout, r1);
+    let mut app = App::new(input, stdout, r1);
 
     thread::spawn(move || {
         for key in tty.keys() {
@@ -37,6 +45,8 @@ fn main() -> () {
     });
 
     app.start();
+
+    Ok(())
 }
 
 fn parse_json(data: &str) -> Result<ocpp::Message, ocpp::ParseError> {

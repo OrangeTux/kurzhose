@@ -67,13 +67,46 @@ where
     pub fn start(&mut self) {
         write!(self.output, "{}", clear::All);
         self.output.flush();
+
+        self.read_input();
         self.iterate_over_keys();
+    }
+
+    fn read_input(&mut self) {
+        loop {
+            let mut line = String::new();
+            let n = self
+                .input
+                .read_line(&mut line)
+                .expect("Failed to read input");
+
+            if n == 0 {
+                return;
+            }
+            self.raw_buffer.push(line);
+            self.redraw();
+        }
     }
 
     fn redraw(&mut self) {
         let (width, height) = terminal_size().unwrap();
         write!(self.output, "{}", clear::All);
         self.output.flush();
+
+        for (i, line) in self.raw_buffer.iter().rev().enumerate() {
+            write!(
+                self.output,
+                "{}{}",
+                termion::cursor::Goto(1, height - i as u16),
+                line
+            );
+            self.output.flush();
+
+            if i == height as usize {
+                break;
+            }
+        }
+
         let spaces: usize = width as usize - self.query.len();
 
         let filling = vec![' '; spaces];
