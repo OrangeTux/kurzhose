@@ -6,6 +6,12 @@ use termion::event::Key;
 use termion::style;
 use termion::terminal_size;
 
+#[derive(Debug, Copy, Clone)]
+pub enum Mode {
+    Normal,
+    Search,
+}
+
 pub struct App<R: io::BufRead, W: io::Write> {
     raw_buffer: Vec<String>,
     filtered_buffer: Vec<String>,
@@ -14,6 +20,7 @@ pub struct App<R: io::BufRead, W: io::Write> {
     output: W,
     keys: Receiver<Key>,
     query: Vec<char>,
+    mode: Mode,
 }
 
 impl<R, W> App<R, W>
@@ -33,6 +40,7 @@ where
             output: output,
             keys: keys,
             query: Vec::new(),
+            mode: Mode::Normal,
         }
     }
 
@@ -43,19 +51,36 @@ where
             select! {
                 recv(self.keys) -> key => {
                      match key {
-                        Ok(Key::Char('/')) => append_query = true,
-                        Ok(Key::Esc) => {
-                            append_query = false;
-                            self.query = Vec::new();
-                            self.redraw();
-                        },
-                        Ok(Key::Ctrl('c')) => return,
-                        Ok(Key::Char(n)) => {
-                            if append_query {
-                                self.query.push(n);
-                                self.redraw();
+                        Ok(key) => {
+                            match (self.mode, key) {
+                                // No mather which mode, ctrl-c will stop the program.
+                                (_, Key::Ctrl('c')) => {
+                                    return
+                                },
+
+                                // Going into search mode.
+                                (Mode::Normal, Key::Char('/')) => {
+                                    self.mode = Mode::Search;
+                                },
+
+                                // We don't support multi-line search.
+                                (Mode::Search, Key::Char('\n')) => {}
+
+                                (Mode::Search, Key::Char(n)) => {
+                                    self.query.push(n);
+                                    self.redraw();
+                                },
+
+                                // Leaving search mode.
+                                (Mode::Search, Key::Esc) => {
+                                    self.mode = Mode::Normal;
+                                    self.query = Vec::new();
+                                    self.redraw();
+                                },
+
+                                (_, _) => {},
                             }
-                        },
+                        }
                         _ => {},
                         Err(e) => {println!("{}", e);},
                     }
