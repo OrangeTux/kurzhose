@@ -1,5 +1,6 @@
 use crossbeam::channel::{select, Receiver};
 use regex::{self, Regex};
+use std::fmt;
 use std::io;
 use termion::clear;
 use termion::event::Key;
@@ -10,6 +11,12 @@ use termion::terminal_size;
 pub enum Mode {
     Normal,
     Search,
+}
+
+impl fmt::Display for Mode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 pub struct App<R: io::BufRead, W: io::Write> {
@@ -89,6 +96,28 @@ where
         }
     }
 
+    // Return a footer that is as wide as the output is. The footer is a single line that spans
+    // the width of the shell.  The query that has been searched for is left on the line, while the
+    // current mode is printed at the right corner. It looks something like this.
+    //
+    //      <query> .........<mode>
+    fn footer(&self, width: usize) -> String {
+        let mut footer = String::new();
+        let mode = &self.mode.to_string();
+        for c in self.query.clone() {
+            footer.push(c);
+        }
+
+        let mut padding = vec![' '; width - self.query.len() - mode.chars().count() - 1];
+        for c in padding {
+            footer.push(c);
+        }
+
+        footer.push_str(mode);
+
+        footer
+    }
+
     pub fn start(&mut self) {
         write!(self.output, "{}", clear::All);
         self.output.flush();
@@ -132,20 +161,14 @@ where
             }
         }
 
-        let spaces: usize = width as usize - self.query.len();
-
-        let filling = vec![' '; spaces];
-
-        let query: String = self.query.iter().collect();
-        let filling: String = filling.iter().collect();
+        let footer = self.footer(width as usize);
 
         write!(
             self.output,
-            "{}{}{}{}{}",
+            "{}{}{}{}",
             termion::cursor::Goto(1, height),
             style::Invert,
-            query,
-            filling,
+            footer,
             style::Reset
         );
         self.output.flush();
