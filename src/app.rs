@@ -154,29 +154,28 @@ where
             regex.push(c);
         }
 
-        let regex = format!(r".*({}).*", regex);
-
+        let regex = format!(r"(.*)(?P<m>{})(.*)", regex);
         let re = Regex::new(&regex.as_str()).unwrap();
 
         for (i, mut line) in self.raw_buffer.iter().rev().enumerate() {
             if re.is_match(line) {
-                let n = format!(
-                    "{}{}{}{}{}",
-                    style::Bold,
-                    color::Fg(color::Red),
-                    line,
-                    color::Fg(color::Reset),
-                    style::Reset,
-                )
-                .to_owned();
-                write!(
-                    self.output,
-                    "{}{}",
-                    termion::cursor::Goto(1, height - i as u16),
-                    n,
-                );
+                for cap in re.captures_iter(line) {
+                    write!(
+                        self.output,
+                        "{}{}{}{}{}{}",
+                        termion::cursor::Goto(1, height - i as u16),
+                        &cap[1],
+                        color::Fg(color::Red),
+                        &cap[2],
+                        color::Fg(color::Reset),
+                        &cap[3],
+                    );
+                }
                 continue;
-            };
+            }
+            if i == height as usize {
+                break;
+            }
 
             write!(
                 self.output,
@@ -184,13 +183,8 @@ where
                 termion::cursor::Goto(1, height - i as u16),
                 line
             );
-            self.output.flush();
-
-            if i == height as usize {
-                break;
-            }
         }
-
+        self.output.flush();
         let footer = self.footer(width as usize);
 
         write!(
