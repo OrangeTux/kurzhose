@@ -2,7 +2,6 @@ use crossbeam::channel::{select, Receiver};
 use regex::{self, Regex};
 use std::fmt;
 use std::io;
-use std::ops::Add;
 use termion::clear;
 use termion::color;
 use termion::event::Key;
@@ -23,8 +22,6 @@ impl fmt::Display for Mode {
 
 pub struct App<R: io::BufRead, W: io::Write> {
     raw_buffer: Vec<String>,
-    filtered_buffer: Vec<String>,
-    filter: Regex,
     input: R,
     output: W,
     keys: Receiver<Key>,
@@ -39,12 +36,8 @@ where
 {
     ///
     pub fn new(input: R, output: W, keys: Receiver<Key>) -> Self {
-        let re = Regex::new(".*").unwrap();
-
         App {
             raw_buffer: Vec::new(),
-            filtered_buffer: Vec::new(),
-            filter: re,
             input: input,
             output: output,
             keys: keys,
@@ -55,7 +48,6 @@ where
 
     // Read events
     fn iterate_over_keys(&mut self) {
-        let mut append_query = false;
         loop {
             select! {
                 recv(self.keys) -> key => {
@@ -74,6 +66,9 @@ where
 
                                 // We don't support multi-line search.
                                 (Mode::Search, Key::Char('\n')) => {}
+                                (Mode::Search, Key::Backspace) => {
+                                    self.query.pop();
+                                    self.redraw(); },
 
                                 (Mode::Search, Key::Char(n)) => {
                                     self.query.push(n);
@@ -91,7 +86,6 @@ where
                             }
                         }
                         _ => {},
-                        Err(e) => {println!("{}", e);},
                     }
                 }
             }
@@ -110,7 +104,7 @@ where
             footer.push(c);
         }
 
-        let mut padding = vec![' '; width - self.query.len() - mode.chars().count() - 1];
+        let padding = vec![' '; width - self.query.len() - mode.chars().count() - 1];
         for c in padding {
             footer.push(c);
         }
@@ -157,7 +151,7 @@ where
         let regex = format!(r"(.*)(?P<m>{})(.*)", regex);
         let re = Regex::new(&regex.as_str()).unwrap();
 
-        for (i, mut line) in self.raw_buffer.iter().rev().enumerate() {
+        for (i, line) in self.raw_buffer.iter().rev().enumerate() {
             if re.is_match(line) {
                 for cap in re.captures_iter(line) {
                     write!(
@@ -196,17 +190,5 @@ where
             style::Reset
         );
         self.output.flush();
-    }
-
-    /// Set filter.
-    pub fn filter(&mut self, query: &str) -> Result<(), regex::Error> {
-        let re = format!(".*{}.*", query);
-        match Regex::new(&re) {
-            Ok(re) => {
-                self.filter = re;
-                Ok(())
-            }
-            Err(e) => Err(e),
-        }
     }
 }
