@@ -2,7 +2,9 @@ use crossbeam::channel::{select, Receiver};
 use regex::{self, Regex};
 use std::fmt;
 use std::io;
+use std::ops::Add;
 use termion::clear;
+use termion::color;
 use termion::event::Key;
 use termion::style;
 use termion::terminal_size;
@@ -147,7 +149,35 @@ where
         write!(self.output, "{}", clear::All);
         self.output.flush();
 
-        for (i, line) in self.raw_buffer.iter().rev().enumerate() {
+        let mut regex = String::new();
+        for c in self.query.clone() {
+            regex.push(c);
+        }
+
+        let regex = format!(r".*({}).*", regex);
+
+        let re = Regex::new(&regex.as_str()).unwrap();
+
+        for (i, mut line) in self.raw_buffer.iter().rev().enumerate() {
+            if re.is_match(line) {
+                let n = format!(
+                    "{}{}{}{}{}",
+                    style::Bold,
+                    color::Fg(color::Red),
+                    line,
+                    color::Fg(color::Reset),
+                    style::Reset,
+                )
+                .to_owned();
+                write!(
+                    self.output,
+                    "{}{}",
+                    termion::cursor::Goto(1, height - i as u16),
+                    n,
+                );
+                continue;
+            };
+
             write!(
                 self.output,
                 "{}{}",
