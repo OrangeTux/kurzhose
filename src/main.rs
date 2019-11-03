@@ -1,35 +1,41 @@
+#![allow(dead_code)]
 mod app;
+mod error;
 mod ocpp;
 
 extern crate nix;
 
-use std::env;
-use std::fs::File;
-
 pub use crate::app::App;
 use crossbeam::channel;
 use serde_json::Value;
+use std::env;
+use std::error::Error;
+use std::fs::File;
 use std::io;
-use std::io::{BufRead, BufReader, Error, ErrorKind};
+use std::io::{BufReader, ErrorKind};
 use std::thread;
+use termion::get_tty;
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
-use termion::{get_tty, is_tty};
 
-fn main() -> Result<(), io::Error> {
+type Result<T> = std::result::Result<T, error::AppError>;
+
+fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     let input = match args.get(1) {
         Some(file) => {
-            let f = File::open(file).unwrap();
+            let f = File::open(file).expect(&format!("unable to open file '{}'", file).to_owned());
             BufReader::new(f)
         }
-        None => return Err(Error::new(ErrorKind::NotFound, "file not found")),
+        None => return Err(io::Error::new(ErrorKind::NotFound, "file not found"))?,
     };
 
     let (s1, r1) = channel::unbounded();
 
-    let stdout = io::stdout().into_raw_mode().unwrap();
-    let tty = get_tty().unwrap();
+    let stdout = io::stdout()
+        .into_raw_mode()
+        .expect("failed to put STDOUT into raw mode");
+    let tty = get_tty().expect("failed to obtain TTY");
 
     let mut app = App::new(input, stdout, r1);
 
@@ -37,9 +43,19 @@ fn main() -> Result<(), io::Error> {
         for key in tty.keys() {
             match key {
                 Ok(key) => {
-                    s1.send(key);
+                    // TODO: properly return a Result containing the error.
+                    s1.send(key).unwrap()
                 }
-                Err(e) => println!("{:?}", e),
+                Err(_) => {
+                    // TODO: properly return a Result containing the error.
+                    // I've already tried something like:
+                    //    return error::AppError::IOError(e);
+                    //
+                    // But that fails to compile with:
+                    //
+                    // for key in tty.keys() {
+                    //          ^^^^^^^^^^ expected enum `error::AppError`, found ()
+                }
             }
         }
     });
@@ -49,7 +65,7 @@ fn main() -> Result<(), io::Error> {
     Ok(())
 }
 
-fn parse_json(data: &str) -> Result<ocpp::Message, ocpp::ParseError> {
+fn parse_json(data: &str) -> std::result::Result<ocpp::Message, ocpp::ParseError> {
     // Some JSON input data as a &str. Maybe this comes from the user.
     // Parse the string of data into serde_json::Value.
     let v: Value = serde_json::from_str(data)?;
