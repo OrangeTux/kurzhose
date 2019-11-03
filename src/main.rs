@@ -11,21 +11,22 @@ use serde_json::Value;
 use std::env;
 use std::fs::File;
 use std::io;
-use std::io::{BufReader, ErrorKind};
+use std::io::{BufRead, BufReader, ErrorKind};
 use std::thread;
-use termion::get_tty;
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
+use termion::{get_tty, is_tty};
 
 fn main() -> app::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    let input = match args.get(1) {
-        Some(file) => {
-            let f = File::open(file).expect(&format!("unable to open file '{}'", file).to_owned());
-            BufReader::new(f)
-        }
-        None => return Err(io::Error::new(ErrorKind::NotFound, "file not found"))?,
-    };
+    //let args: Vec<String> = env::args().collect();
+    //let input = match args.get(1) {
+    //Some(file) => {
+    //let f = File::open(file).expect(&format!("unable to open file '{}'", file).to_owned());
+    //BufReader::new(f)
+    //}
+    //None => return Err(io::Error::new(ErrorKind::NotFound, "file not found"))?,
+    //};
+    let input = io::stdin();
 
     let (s1, r1) = channel::unbounded();
 
@@ -34,7 +35,7 @@ fn main() -> app::Result<()> {
         .expect("failed to put STDOUT into raw mode");
     let tty = get_tty().expect("failed to obtain TTY");
 
-    let mut app = App::new(input, stdout, r1);
+    let mut app = App::new(input.lock(), stdout, r1);
 
     thread::spawn(move || {
         for key in tty.keys() {
