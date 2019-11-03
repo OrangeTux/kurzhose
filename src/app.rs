@@ -160,6 +160,10 @@ where
 
         for (i, line) in self.raw_buffer.iter().rev().enumerate() {
             if re.is_match(line) {
+                if i >= height as usize {
+                    break;
+                }
+
                 for cap in re.captures_iter(line) {
                     write!(
                         self.output,
@@ -174,18 +178,16 @@ where
                 }
                 continue;
             }
-            if i == height as usize {
-                break;
-            }
 
             write!(
                 self.output,
                 "{}{}",
                 termion::cursor::Goto(1, height - i as u16),
                 line
-            )?;
+            )
+            .unwrap()
         }
-        self.output.flush()?;
+        self.output.flush().unwrap();
         let footer = self.footer(width as usize);
 
         write!(
