@@ -9,7 +9,6 @@ pub use crate::app::App;
 use crossbeam::channel;
 use serde_json::Value;
 use std::env;
-use std::error::Error;
 use std::fs::File;
 use std::io;
 use std::io::{BufReader, ErrorKind};
@@ -18,9 +17,7 @@ use termion::get_tty;
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
 
-type Result<T> = std::result::Result<T, error::AppError>;
-
-fn main() -> Result<()> {
+fn main() -> app::Result<()> {
     let args: Vec<String> = env::args().collect();
     let input = match args.get(1) {
         Some(file) => {
@@ -60,9 +57,7 @@ fn main() -> Result<()> {
         }
     });
 
-    app.start();
-
-    Ok(())
+    app.start()
 }
 
 fn parse_json(data: &str) -> std::result::Result<ocpp::Message, ocpp::ParseError> {

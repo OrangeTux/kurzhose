@@ -1,3 +1,5 @@
+use crate::error;
+
 use crossbeam::channel::{select, Receiver};
 use regex::{self, Regex};
 use std::fmt;
@@ -7,6 +9,8 @@ use termion::color;
 use termion::event::Key;
 use termion::style;
 use termion::terminal_size;
+
+pub type Result<T> = std::result::Result<T, error::AppError>;
 
 #[derive(Debug, Copy, Clone)]
 pub enum Mode {
@@ -47,7 +51,7 @@ where
     }
 
     // Read events
-    fn iterate_over_keys(&mut self) {
+    fn iterate_over_keys(&mut self) -> Result<()> {
         loop {
             select! {
                 recv(self.keys) -> key => {
@@ -56,7 +60,7 @@ where
                             match (self.mode, key) {
                                 // No mather which mode, ctrl-c will stop the program.
                                 (_, Key::Ctrl('c')) => {
-                                    return
+                                    return Ok(())
                                 },
 
                                 // Going into search mode.
@@ -68,24 +72,27 @@ where
                                 (Mode::Search, Key::Char('\n')) => {}
                                 (Mode::Search, Key::Backspace) => {
                                     self.query.pop();
-                                    self.redraw(); },
+                                    self.redraw()?
+                                },
 
                                 (Mode::Search, Key::Char(n)) => {
                                     self.query.push(n);
-                                    self.redraw();
+                                    self.redraw()?
                                 },
 
                                 // Leaving search mode.
                                 (Mode::Search, Key::Esc) => {
                                     self.mode = Mode::Normal;
                                     self.query = Vec::new();
-                                    self.redraw();
+                                    self.redraw()?
                                 },
 
                                 (_, _) => {},
                             }
                         }
-                        _ => {},
+                        Err(e) => {
+                            return Err(error::AppError::InputError(format!("failed to receive key: {}", e).to_owned()))
+                        },
                     }
                 }
             }
@@ -114,15 +121,15 @@ where
         footer
     }
 
-    pub fn start(&mut self) {
-        write!(self.output, "{}", clear::All);
-        self.output.flush();
+    pub fn start(&mut self) -> Result<()> {
+        //write!(self.output, "{}", clear::All)?;
+        //self.output.flush()?;
 
-        self.read_input();
-        self.iterate_over_keys();
+        self.read_input()?;
+        self.iterate_over_keys()
     }
 
-    fn read_input(&mut self) {
+    fn read_input(&mut self) -> Result<()> {
         loop {
             let mut line = String::new();
             let n = self
@@ -131,17 +138,17 @@ where
                 .expect("Failed to read input");
 
             if n == 0 {
-                return;
+                return Ok(());
             }
             self.raw_buffer.push(line);
-            self.redraw();
+            self.redraw()?;
         }
     }
 
-    fn redraw(&mut self) {
+    fn redraw(&mut self) -> Result<()> {
         let (width, height) = terminal_size().unwrap();
-        write!(self.output, "{}", clear::All);
-        self.output.flush();
+        write!(self.output, "{}", clear::All)?;
+        self.output.flush()?;
 
         let mut regex = String::new();
         for c in self.query.clone() {
@@ -163,7 +170,7 @@ where
                         &cap[2],
                         color::Fg(color::Reset),
                         &cap[3],
-                    );
+                    )?;
                 }
                 continue;
             }
@@ -176,9 +183,9 @@ where
                 "{}{}",
                 termion::cursor::Goto(1, height - i as u16),
                 line
-            );
+            )?;
         }
-        self.output.flush();
+        self.output.flush()?;
         let footer = self.footer(width as usize);
 
         write!(
@@ -188,7 +195,9 @@ where
             style::Invert,
             footer,
             style::Reset
-        );
-        self.output.flush();
+        )?;
+        self.output.flush()?;
+
+        Ok(())
     }
 }
