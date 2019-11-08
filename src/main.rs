@@ -27,7 +27,6 @@ fn main() -> app::Result<()> {
     //}
     //None => return Err(io::Error::new(ErrorKind::NotFound, "file not found"))?,
     //};
-    let input = io::stdin();
 
     let (s1, keys) = channel::unbounded();
 
@@ -36,7 +35,7 @@ fn main() -> app::Result<()> {
         .expect("failed to put STDOUT into raw mode");
     let tty = get_tty().expect("failed to obtain TTY");
 
-    let mut app = App::new(input.lock(), stdout);
+    let mut app = App::new(stdout);
 
     thread::spawn(move || {
         for key in tty.keys() {

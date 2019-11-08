@@ -5,6 +5,7 @@ use crossbeam::channel::{select, Receiver};
 use regex::{self, Regex};
 use std::fmt;
 use std::io;
+use std::io::BufRead;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use termion::clear;
@@ -27,28 +28,21 @@ impl fmt::Display for Mode {
     }
 }
 
-pub struct App<R: io::BufRead, W: io::Write> {
-    raw_buffer: Vec<String>,
-    input: R,
+pub struct App<W: io::Write> {
+    raw_buffer: Arc<Mutex<Vec<String>>>,
     output: W,
-    query: Vec<char>,
-    mode: Mode,
     state: Arc<Mutex<state::State>>,
 }
 
-impl<R, W> App<R, W>
+impl<W> App<W>
 where
-    R: io::BufRead,
     W: io::Write,
 {
     ///
-    pub fn new(input: R, output: W) -> Self {
+    pub fn new(output: W) -> Self {
         App {
-            raw_buffer: Vec::new(),
-            input: input,
+            raw_buffer: Arc::new(Mutex::new(Vec::new())),
             output: output,
-            query: Vec::new(),
-            mode: Mode::Normal,
             state: Arc::new(Mutex::new(state::State::new())),
         }
     }
@@ -60,12 +54,15 @@ where
     //      <query> .........<mode>
     fn footer(&self, width: usize) -> String {
         let mut footer = String::new();
-        let mode = &self.mode.to_string();
-        for c in self.query.clone() {
+        let state = self.state.clone();
+        let state = state.lock().unwrap();
+
+        let mode = &state.mode.to_string();
+        for c in state.query.clone() {
             footer.push(c);
         }
 
-        let padding = vec![' '; width - self.query.len() - mode.chars().count() - 1];
+        let padding = vec![' '; width - state.query.len() - mode.chars().count() - 1];
         for c in padding {
             footer.push(c);
         }
@@ -80,7 +77,6 @@ where
         self.output.flush()?;
 
         let state = self.state.clone();
-
         let t = thread::spawn(move || loop {
             select! {
                     recv(keys) -> key => {
@@ -99,41 +95,43 @@ where
             }
         });
 
-        self.read_input()?;
+        let raw_buffer = self.raw_buffer.clone();
+        thread::spawn(move || {
+            let input = io::stdin();
+            let mut input = input.lock();
+
+            loop {
+                let mut line = String::new();
+                let n = input.read_line(&mut line).expect("Failed to read input");
+
+                if n == 0 {
+                    return;
+                }
+
+                raw_buffer.lock().unwrap().push(line);
+            }
+        });
+
         t.join();
         return Ok(());
-    }
-
-    fn read_input(&mut self) -> Result<()> {
-        loop {
-            let mut line = String::new();
-            let n = self
-                .input
-                .read_line(&mut line)
-                .expect("Failed to read input");
-
-            if n == 0 {
-                return Ok(());
-            }
-            self.raw_buffer.push(line);
-            self.redraw()?;
-        }
     }
 
     fn redraw(&mut self) -> Result<()> {
         let (width, height) = terminal_size().unwrap();
         write!(self.output, "{}", clear::All)?;
         self.output.flush()?;
+        let state = self.state.clone();
+        let raw_buffer = self.raw_buffer.clone();
 
         let mut regex = String::new();
-        for c in self.query.clone() {
+        for c in state.lock().unwrap().query.clone() {
             regex.push(c);
         }
 
         let regex = format!(r"(.*)(?P<m>{})(.*)", regex);
         let re = Regex::new(&regex.as_str()).unwrap();
 
-        for (i, line) in self.raw_buffer.iter().rev().enumerate() {
+        for (i, line) in raw_buffer.lock().unwrap().iter().rev().enumerate() {
             if re.is_match(line) {
                 if i >= height as usize {
                     break;
