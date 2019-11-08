@@ -2,6 +2,7 @@
 mod app;
 mod error;
 mod ocpp;
+mod state;
 
 extern crate nix;
 
@@ -28,14 +29,14 @@ fn main() -> app::Result<()> {
     //};
     let input = io::stdin();
 
-    let (s1, r1) = channel::unbounded();
+    let (s1, keys) = channel::unbounded();
 
     let stdout = io::stdout()
         .into_raw_mode()
         .expect("failed to put STDOUT into raw mode");
     let tty = get_tty().expect("failed to obtain TTY");
 
-    let mut app = App::new(input.lock(), stdout, r1);
+    let mut app = App::new(input.lock(), stdout);
 
     thread::spawn(move || {
         for key in tty.keys() {
@@ -58,7 +59,7 @@ fn main() -> app::Result<()> {
         }
     });
 
-    app.start()
+    app.start(keys)
 }
 
 fn parse_json(data: &str) -> std::result::Result<ocpp::Message, ocpp::ParseError> {

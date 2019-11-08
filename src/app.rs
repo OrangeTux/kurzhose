@@ -1,9 +1,12 @@
 use crate::error;
+use crate::state;
 
 use crossbeam::channel::{select, Receiver};
 use regex::{self, Regex};
 use std::fmt;
 use std::io;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use termion::clear;
 use termion::color;
 use termion::event::Key;
@@ -28,9 +31,9 @@ pub struct App<R: io::BufRead, W: io::Write> {
     raw_buffer: Vec<String>,
     input: R,
     output: W,
-    keys: Receiver<Key>,
     query: Vec<char>,
     mode: Mode,
+    state: Arc<Mutex<state::State>>,
 }
 
 impl<R, W> App<R, W>
@@ -39,63 +42,14 @@ where
     W: io::Write,
 {
     ///
-    pub fn new(input: R, output: W, keys: Receiver<Key>) -> Self {
+    pub fn new(input: R, output: W) -> Self {
         App {
             raw_buffer: Vec::new(),
             input: input,
             output: output,
-            keys: keys,
             query: Vec::new(),
             mode: Mode::Normal,
-        }
-    }
-
-    // Read events
-    fn iterate_over_keys(&mut self) -> Result<()> {
-        loop {
-            select! {
-                recv(self.keys) -> key => {
-                     match key {
-                        Ok(key) => {
-                            match (self.mode, key) {
-                                // No mather which mode, ctrl-c will stop the program.
-                                (_, Key::Ctrl('c')) => {
-                                    return Ok(())
-                                },
-
-                                // Going into search mode.
-                                (Mode::Normal, Key::Char('/')) => {
-                                    self.mode = Mode::Search;
-                                },
-
-                                // We don't support multi-line search.
-                                (Mode::Search, Key::Char('\n')) => {}
-                                (Mode::Search, Key::Backspace) => {
-                                    self.query.pop();
-                                    self.redraw()?
-                                },
-
-                                (Mode::Search, Key::Char(n)) => {
-                                    self.query.push(n);
-                                    self.redraw()?
-                                },
-
-                                // Leaving search mode.
-                                (Mode::Search, Key::Esc) => {
-                                    self.mode = Mode::Normal;
-                                    self.query = Vec::new();
-                                    self.redraw()?
-                                },
-
-                                (_, _) => {},
-                            }
-                        }
-                        Err(e) => {
-                            return Err(error::AppError::InputError(format!("failed to receive key: {}", e).to_owned()))
-                        },
-                    }
-                }
-            }
+            state: Arc::new(Mutex::new(state::State::new())),
         }
     }
 
@@ -121,12 +75,33 @@ where
         footer
     }
 
-    pub fn start(&mut self) -> Result<()> {
-        //write!(self.output, "{}", clear::All)?;
-        //self.output.flush()?;
+    pub fn start(&mut self, keys: Receiver<Key>) -> Result<()> {
+        write!(self.output, "{}", clear::All)?;
+        self.output.flush()?;
+
+        let state = self.state.clone();
+
+        let t = thread::spawn(move || loop {
+            select! {
+                    recv(keys) -> key => {
+                        match key {
+                            Ok(key) => {
+                                if key == Key::Ctrl('c') {
+                                    return
+                                }
+                                state.lock().unwrap().process_key(key);
+                            },
+                            Err(e) => {
+                                return
+                            }
+                    }
+                }
+            }
+        });
 
         self.read_input()?;
-        self.iterate_over_keys()
+        t.join();
+        return Ok(());
     }
 
     fn read_input(&mut self) -> Result<()> {
